@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   HiOutlineArrowUpTray,
@@ -19,7 +19,6 @@ const InitialImportGate = () => {
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const addTracks = usePlayerStore((s) => s.addTracks);
   const autoImport = useSettings((s) => s.autoImport);
@@ -102,7 +101,7 @@ const InitialImportGate = () => {
   const onFileInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     await importFiles(files);
-    if (inputRef.current) inputRef.current.value = "";
+    event.target.value = "";
   };
 
   if (!ready) return null;
@@ -155,33 +154,40 @@ const InitialImportGate = () => {
                   {loading ? "Importing..." : "Allow Folder Access & Import All Audio"}
                 </button>
               ) : (
-                <button
-                  onClick={() => inputRef.current?.click()}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
+                <label
+                  className={`relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow ${
+                    loading ? "pointer-events-none opacity-60" : ""
+                  }`}
                 >
                   <HiOutlineArrowUpTray className="text-lg" />
                   {loading ? "Importing..." : "Choose Audio Files to Import"}
-                </button>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    multiple
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={onFileInput}
+                    disabled={loading}
+                  />
+                </label>
               )}
 
-              <input
-                ref={inputRef}
-                type="file"
-                accept="audio/*"
-                multiple
-                className="hidden"
-                onChange={onFileInput}
-              />
-
               {canUseDirectoryPicker && (
-                <button
-                  onClick={() => inputRef.current?.click()}
-                  disabled={loading}
-                  className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-medium text-primary disabled:opacity-60"
+                <label
+                  className={`relative block w-full cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm font-medium text-primary ${
+                    loading ? "pointer-events-none opacity-60" : ""
+                  }`}
                 >
                   Choose Files Instead
-                </button>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    multiple
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={onFileInput}
+                    disabled={loading}
+                  />
+                </label>
               )}
 
               {status && <p className="text-xs text-muted">{status}</p>}

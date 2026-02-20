@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { extractTrackMeta, pickAudioFiles, supportsFileSystemAccess } from "../lib/fileAccess";
 import { trackRepo } from "../db/trackRepo";
@@ -6,7 +7,6 @@ import { usePlayerStore } from "../store/player";
 import { useSettings } from "../store/settings";
 
 const AddMusicPage = () => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const addTracks = usePlayerStore((s) => s.addTracks);
@@ -51,10 +51,10 @@ const AddMusicPage = () => {
     }
   };
 
-  const pickWithInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const pickWithInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     await handleFiles(files);
-    if (inputRef.current) inputRef.current.value = "";
+    event.target.value = "";
   };
 
   return (
@@ -78,22 +78,22 @@ const AddMusicPage = () => {
           >
             {supportsFileSystemAccess() ? "Pick Audio Files" : "File Picker Not Supported"}
           </motion.button>
-          <motion.button
+          <motion.label
             whileTap={{ scale: 0.98 }}
-            onClick={() => inputRef.current?.click()}
-            disabled={loading}
-            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold"
+            className={`relative cursor-pointer rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold ${
+              loading ? "pointer-events-none opacity-50" : ""
+            }`}
           >
             Upload via File Picker (iOS / Safari)
-          </motion.button>
-          <input
-            ref={inputRef}
-            className="hidden"
-            type="file"
-            accept="audio/*"
-            multiple
-            onChange={pickWithInput}
-          />
+            <input
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              type="file"
+              accept="audio/*"
+              multiple
+              onChange={pickWithInput}
+              disabled={loading}
+            />
+          </motion.label>
         </div>
       </div>
 
