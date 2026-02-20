@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+  --app-bg: #f8fafc;
+  --app-text: #0f172a;
+  --app-muted: #475569;
+  --card-bg: rgba(255, 255, 255, 0.78);
+  --card-border: rgba(15, 23, 42, 0.08);
+  --glow-1: rgba(124, 58, 237, 0.16);
+  --glow-2: rgba(20, 184, 166, 0.16);
+}
+
+.dark {
+  --app-bg: #0b0f1a;
+  --app-text: #e2e8f0;
+  --app-muted: #94a3b8;
+  --card-bg: rgba(15, 23, 42, 0.75);
+  --card-border: rgba(148, 163, 184, 0.12);
+  --glow-1: rgba(124, 58, 237, 0.2);
+  --glow-2: rgba(20, 184, 166, 0.2);
+}
+
+body {
+  font-family: "Manrope", ui-sans-serif, system-ui;
+  min-height: 100vh;
+  color: var(--app-text);
+  background:
+    radial-gradient(circle at top, var(--glow-1), transparent 55%),
+    radial-gradient(circle at 80% 20%, var(--glow-2), transparent 50%),
+    var(--app-bg);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.glass {
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--card-border);
+}
+
+.text-primary {
+  color: var(--app-text);
+}
+
+.text-muted {
+  color: var(--app-muted);
+}
+
+.range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #7c3aed;
+  border: 2px solid rgba(15, 23, 42, 0.7);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.4);
+}
+
+.range-thumb::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #7c3aed;
+  border: 2px solid rgba(15, 23, 42, 0.7);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.4);
+}
