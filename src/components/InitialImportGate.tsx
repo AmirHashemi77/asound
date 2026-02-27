@@ -25,17 +25,24 @@ const directoryInputAttrs = {
 const InitialImportGate = () => {
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [progressText, setProgressText] = useState<string | null>(null);
+  const [isPicking, setIsPicking] = useState(false);
 
   const folderInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
 
-  const importPickedFiles = usePlayerStore((s) => s.importPickedFiles);
+  const importFilesChunked = usePlayerStore((s) => s.importFilesChunked);
+  const importStatus = usePlayerStore((s) => s.importStatus);
+  const importProgress = usePlayerStore((s) => s.importProgress);
+  const importFailures = usePlayerStore((s) => s.importFailures);
+  const resetImportState = usePlayerStore((s) => s.resetImportState);
+
   const autoImport = useSettings((s) => s.autoImport);
   const canUseDirectoryPicker = useMemo(() => supportsDirectoryAccess(), []);
   const canUseWebkitDirectory = useMemo(() => supportsWebkitDirectoryInput(), []);
+
+  const isImportRunning = importStatus === "running";
+  const isBusy = isImportRunning || isPicking;
 
   useEffect(() => {
     let active = true;
@@ -65,14 +72,6 @@ const InitialImportGate = () => {
     };
   }, []);
 
-  const onProgress = (current: number, total: number) => {
-    if (!total) {
-      setProgressText("Preparing import...");
-      return;
-    }
-    setProgressText(`Importing ${Math.min(current, total)} / ${total}`);
-  };
-
   const handleImportResult = (result: { imported: number; skipped: number; failed: number }) => {
     if (result.imported > 0 || result.skipped > 0) {
       localStorage.setItem(FIRST_IMPORT_KEY, "done");
@@ -81,7 +80,7 @@ const InitialImportGate = () => {
     }
 
     if (result.failed > 0) {
-      setStatus("Import failed for selected files. Please try again.");
+      setStatus(`Import completed with ${result.failed} failures.`);
       return;
     }
 
@@ -94,30 +93,28 @@ const InitialImportGate = () => {
       return;
     }
 
-    setLoading(true);
     setStatus(null);
-    setProgressText("Preparing import...");
+    setIsPicking(true);
+    resetImportState();
 
     try {
-      const result = await importPickedFiles(files, {
+      const result = await importFilesChunked(files, {
         mode,
-        autoImport,
-        onProgress: (progress) => onProgress(progress.current, progress.total)
+        autoImport
       });
       handleImportResult(result);
     } catch {
-      setStatus("Import failed. Please try again.");
+      setStatus("Import failed due to an unrecoverable error. Please try again.");
     } finally {
-      setLoading(false);
-      setProgressText(null);
+      setIsPicking(false);
     }
   };
 
   const onImportFolder = async () => {
     if (canUseDirectoryPicker) {
-      setLoading(true);
       setStatus(null);
-      setProgressText("Preparing import...");
+      setIsPicking(true);
+      resetImportState();
 
       try {
         const picked = await pickAudioDirectory();
@@ -126,18 +123,16 @@ const InitialImportGate = () => {
           return;
         }
 
-        const result = await importPickedFiles([], {
+        const result = await importFilesChunked([], {
           candidates: picked.files,
           mode: "folder",
-          autoImport,
-          onProgress: (progress) => onProgress(progress.current, progress.total)
+          autoImport
         });
         handleImportResult(result);
       } catch {
         setStatus("Folder selection was canceled or denied.");
       } finally {
-        setLoading(false);
-        setProgressText(null);
+        setIsPicking(false);
       }
       return;
     }
@@ -206,7 +201,7 @@ const InitialImportGate = () => {
             <div className="space-y-3">
               <button
                 onClick={onImportFolder}
-                disabled={loading}
+                disabled={isBusy}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
               >
                 <HiOutlineFolderOpen className="text-lg" />
@@ -215,7 +210,7 @@ const InitialImportGate = () => {
 
               <button
                 onClick={onSelectFiles}
-                disabled={loading}
+                disabled={isBusy}
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-medium text-primary disabled:opacity-60"
               >
                 Select Files
@@ -227,10 +222,16 @@ const InitialImportGate = () => {
                 </p>
               )}
 
-              {progressText && (
+              {isImportRunning && (
                 <p className="flex items-center gap-2 text-xs text-muted">
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                  {progressText}
+                  {`Importing ${importProgress.processed}/${importProgress.total} · Succeeded ${importProgress.succeeded} · Failed ${importProgress.failed}`}
+                </p>
+              )}
+
+              {importFailures.length > 0 && (
+                <p className="text-xs text-muted">
+                  First failure: {importFailures[0].fileName} ({importFailures[0].reason})
                 </p>
               )}
 
@@ -244,7 +245,7 @@ const InitialImportGate = () => {
               {...directoryInputAttrs}
               className="hidden"
               onChange={onFolderInput}
-              disabled={loading}
+              disabled={isBusy}
             />
             <input
               ref={filesInputRef}
@@ -252,7 +253,7 @@ const InitialImportGate = () => {
               multiple
               className="hidden"
               onChange={onFilesInput}
-              disabled={loading}
+              disabled={isBusy}
             />
           </motion.div>
         </motion.div>

@@ -21,21 +21,28 @@ const directoryInputAttrs = {
 type PickerIntent = "folder" | "files" | "update-folder" | "update-files";
 
 const AddMusicPage = () => {
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [progressText, setProgressText] = useState<string | null>(null);
   const [pickerIntent, setPickerIntent] = useState<PickerIntent | null>(null);
+  const [isPicking, setIsPicking] = useState(false);
 
   const folderInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
 
-  const importPickedFiles = usePlayerStore((s) => s.importPickedFiles);
+  const importFilesChunked = usePlayerStore((s) => s.importFilesChunked);
   const rescanLibrary = usePlayerStore((s) => s.rescanLibrary);
   const lastImportMode = usePlayerStore((s) => s.lastImportMode);
+  const importStatus = usePlayerStore((s) => s.importStatus);
+  const importProgress = usePlayerStore((s) => s.importProgress);
+  const importLastMessage = usePlayerStore((s) => s.importLastMessage);
+  const importFailures = usePlayerStore((s) => s.importFailures);
+  const resetImportState = usePlayerStore((s) => s.resetImportState);
   const { autoImport } = useSettings();
 
   const canUseDirectoryPicker = useMemo(() => supportsDirectoryAccess(), []);
   const canUseWebkitDirectory = useMemo(() => supportsWebkitDirectoryInput(), []);
+
+  const isImportRunning = importStatus === "running";
+  const isBusy = isImportRunning || isPicking;
 
   const helperText = useMemo(() => {
     if (canUseDirectoryPicker) {
@@ -47,14 +54,6 @@ const AddMusicPage = () => {
     return "If folder picking is unavailable, use Select Files and Update Library to import new tracks.";
   }, [canUseDirectoryPicker, canUseWebkitDirectory]);
 
-  const onProgress = (current: number, total: number) => {
-    if (!total) {
-      setProgressText("Preparing import...");
-      return;
-    }
-    setProgressText(`Importing ${Math.min(current, total)} / ${total}`);
-  };
-
   const buildStatus = (result: {
     imported: number;
     skipped: number;
@@ -64,18 +63,13 @@ const AddMusicPage = () => {
   }) => {
     if (result.canceled) return "Operation canceled.";
 
-    let message = "No new tracks found.";
-    if (result.imported > 0) {
-      message = `Added ${result.imported} new tracks.`;
-    }
-    if (result.failed > 0) {
-      message = `${message} ${result.failed} files failed.`;
+    let message = result.imported > 0 ? `Added ${result.imported} tracks.` : "No new tracks found.";
+    message = `${message} Failed: ${result.failed}.`;
+    if (result.skipped > 0) {
+      message = `${message} Skipped duplicates: ${result.skipped}.`;
     }
     if (result.warning) {
       message = `${message} ${result.warning}`;
-    }
-    if (result.imported === 0 && result.skipped > 0) {
-      message = `${message} (${result.skipped} duplicate files skipped)`;
     }
     return message;
   };
@@ -86,15 +80,13 @@ const AddMusicPage = () => {
       return;
     }
 
-    setLoading(true);
     setStatus(null);
-    setProgressText("Preparing import...");
+    resetImportState();
 
     try {
-      const result = await importPickedFiles(files, {
+      const result = await importFilesChunked(files, {
         mode,
-        autoImport,
-        onProgress: (progress) => onProgress(progress.current, progress.total)
+        autoImport
       });
       setStatus(
         buildStatus({
@@ -103,18 +95,17 @@ const AddMusicPage = () => {
         })
       );
     } catch {
-      setStatus("Import failed. Please try again.");
+      setStatus("Import failed due to an unrecoverable error. Please try again.");
     } finally {
-      setLoading(false);
-      setProgressText(null);
       setPickerIntent(null);
+      setIsPicking(false);
     }
   };
 
   const importFolderWithDirectoryPicker = async (mode: ImportMode) => {
-    setLoading(true);
     setStatus(null);
-    setProgressText("Preparing import...");
+    setIsPicking(true);
+    resetImportState();
 
     try {
       const picked = await pickAudioDirectory();
@@ -123,19 +114,17 @@ const AddMusicPage = () => {
         return;
       }
 
-      const result = await importPickedFiles([], {
+      const result = await importFilesChunked([], {
         candidates: picked.files,
         mode,
-        autoImport,
-        onProgress: (progress) => onProgress(progress.current, progress.total)
+        autoImport
       });
       setStatus(buildStatus(result));
     } catch {
       setStatus("Folder selection was canceled or denied.");
     } finally {
-      setLoading(false);
-      setProgressText(null);
       setPickerIntent(null);
+      setIsPicking(false);
     }
   };
 
@@ -161,13 +150,16 @@ const AddMusicPage = () => {
     }
 
     const mode: ImportMode = pickerIntent === "update-folder" ? "update" : "folder";
+    setIsPicking(true);
     await importWithMode(files, mode, warning);
   };
 
   const onFilesInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = normalizePickedFiles(event.target.files);
     event.target.value = "";
+
     const mode: ImportMode = pickerIntent === "update-files" ? "update" : "files";
+    setIsPicking(true);
     await importWithMode(files, mode);
   };
 
@@ -189,21 +181,18 @@ const AddMusicPage = () => {
   const onUpdateLibraryClick = async () => {
     if (lastImportMode === "folder") {
       if (canUseDirectoryPicker) {
-        setLoading(true);
         setStatus(null);
-        setProgressText("Preparing import...");
-
+        setIsPicking(true);
+        resetImportState();
         try {
           const result = await rescanLibrary({
-            autoImport,
-            onProgress: (progress) => onProgress(progress.current, progress.total)
+            autoImport
           });
           setStatus(buildStatus(result));
         } catch {
-          setStatus("Update failed. Please try again.");
+          setStatus("Update failed due to an unrecoverable error. Please try again.");
         } finally {
-          setLoading(false);
-          setProgressText(null);
+          setIsPicking(false);
         }
         return;
       }
@@ -247,7 +236,7 @@ const AddMusicPage = () => {
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={onImportFolderClick}
-            disabled={loading}
+            disabled={isBusy}
             className="rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-50"
           >
             Import Folder
@@ -256,7 +245,7 @@ const AddMusicPage = () => {
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={onSelectFilesClick}
-            disabled={loading}
+            disabled={isBusy}
             className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold disabled:opacity-50"
           >
             Select Files
@@ -265,7 +254,7 @@ const AddMusicPage = () => {
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={onUpdateLibraryClick}
-            disabled={loading}
+            disabled={isBusy}
             className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-200 disabled:opacity-50"
           >
             Update Library
@@ -279,7 +268,7 @@ const AddMusicPage = () => {
           {...directoryInputAttrs}
           className="hidden"
           onChange={onFolderInput}
-          disabled={loading}
+          disabled={isBusy}
         />
         <input
           ref={filesInputRef}
@@ -287,16 +276,25 @@ const AddMusicPage = () => {
           multiple
           className="hidden"
           onChange={onFilesInput}
-          disabled={loading}
+          disabled={isBusy}
         />
       </div>
 
-      {progressText && (
+      {isImportRunning && (
         <p className="flex items-center gap-2 text-sm text-muted">
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          {progressText}
+          {`Importing ${importProgress.processed}/${importProgress.total} · Succeeded ${importProgress.succeeded} · Failed ${importProgress.failed}`}
         </p>
       )}
+
+      {!isImportRunning && importLastMessage && <p className="text-sm text-muted">{importLastMessage}</p>}
+
+      {importFailures.length > 0 && (
+        <p className="text-xs text-muted">
+          First failure: {importFailures[0].fileName} ({importFailures[0].reason})
+        </p>
+      )}
+
       {status && <p className="text-sm text-muted">{status}</p>}
     </div>
   );
