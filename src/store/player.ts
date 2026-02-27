@@ -90,11 +90,22 @@ export interface ImportResult {
   canceled?: boolean;
 }
 
+export interface PlaybackSnapshot {
+  paused: boolean;
+  currentTime: number;
+  duration: number;
+  hasSrc: boolean;
+  readyState: number;
+  hasError: boolean;
+}
+
 interface PlayerState {
   tracks: TrackMeta[];
   playlists: Playlist[];
   lastImportMode: Exclude<ImportMode, "update"> | null;
   hasImportedBefore: boolean;
+  lastKnownShouldBePlaying: boolean;
+  playbackNotice: string | null;
   importStatus: ImportStatus;
   importProgress: ImportProgressState;
   importFailures: ImportFailure[];
@@ -110,6 +121,9 @@ interface PlayerState {
   removeTrack: (id: string) => void;
   setCurrent: (id: string | null) => void;
   setIsPlaying: (value: boolean) => void;
+  setLastKnownShouldBePlaying: (value: boolean) => void;
+  reconcilePlaybackState: (snapshot: PlaybackSnapshot) => void;
+  setPlaybackNotice: (message: string | null) => void;
   setCurrentTime: (value: number) => void;
   setDuration: (value: number) => void;
   toggleShuffle: () => void;
@@ -157,6 +171,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   playlists: [],
   lastImportMode: readLastImportMode(),
   hasImportedBefore: localStorage.getItem(HAS_IMPORTED_BEFORE_KEY) === "true",
+  lastKnownShouldBePlaying: false,
+  playbackNotice: null,
   importStatus: "idle",
   importProgress: EMPTY_IMPORT_PROGRESS,
   importFailures: [],
@@ -181,6 +197,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
   setCurrent: (id) => set({ currentTrackId: id }),
   setIsPlaying: (value) => set({ isPlaying: value }),
+  setLastKnownShouldBePlaying: (value) => set({ lastKnownShouldBePlaying: value }),
+  reconcilePlaybackState: (snapshot) => {
+    const hasDuration = Number.isFinite(snapshot.duration) && snapshot.duration > 0;
+    const nextDuration = hasDuration ? snapshot.duration : 0;
+    const nextCurrentTime = Number.isFinite(snapshot.currentTime) ? snapshot.currentTime : 0;
+    const nextIsPlaying = snapshot.hasSrc && !snapshot.paused && !snapshot.hasError;
+
+    set({
+      isPlaying: nextIsPlaying,
+      currentTime: nextCurrentTime,
+      duration: nextDuration
+    });
+  },
+  setPlaybackNotice: (message) => set({ playbackNotice: message }),
   setCurrentTime: (value) => set({ currentTime: value }),
   setDuration: (value) => set({ duration: value }),
   toggleShuffle: () => set({ shuffle: !get().shuffle }),

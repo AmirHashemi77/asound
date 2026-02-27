@@ -9,7 +9,7 @@ const DEFAULT_COVER = "/default-cover.png";
 
 const MiniPlayer = () => {
   const { currentTrack, play, pause, playNext, playPrev } = useAudio();
-  const { isPlaying, currentTime, duration } = usePlayerStore();
+  const { isPlaying, currentTime, duration, playbackNotice } = usePlayerStore();
 
   if (!currentTrack) return null;
 
@@ -36,6 +36,7 @@ const MiniPlayer = () => {
               · {formatTime(currentTime)} / {formatTime(duration)}
             </span>
           </p>
+          {playbackNotice && <p className="truncate text-[10px] text-muted/90">{playbackNotice}</p>}
         </div>
       </Link>
       <div className="shrink-0 flex items-center gap-1.5 sm:gap-2">
