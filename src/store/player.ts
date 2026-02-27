@@ -4,6 +4,7 @@ import { playlistRepo } from "../db/playlistRepo";
 import { trackRepo } from "../db/trackRepo";
 import type { Playlist, TrackMeta } from "../db/types";
 import {
+  batch as chunkFiles,
   ensureReadPermission,
   type AudioImportCandidate,
   extractTrackMeta,
@@ -17,19 +18,33 @@ import {
 } from "../lib/fileAccess";
 
 export type RepeatMode = "off" | "one" | "all";
+export type ImportMode = "folder" | "files" | "update";
 
 const IMPORT_BATCH_SIZE = 25;
+const LAST_IMPORT_MODE_KEY = "library-last-import-mode";
+const HAS_IMPORTED_BEFORE_KEY = "library-has-imported-before";
 
 const yieldToMainThread = () =>
   new Promise<void>((resolve) => {
     window.setTimeout(resolve, 0);
   });
 
+const readLastImportMode = (): Exclude<ImportMode, "update"> | null => {
+  const saved = localStorage.getItem(LAST_IMPORT_MODE_KEY);
+  if (saved === "folder" || saved === "files") return saved;
+  return null;
+};
+
+const persistImportMode = (mode: Exclude<ImportMode, "update">) => {
+  localStorage.setItem(LAST_IMPORT_MODE_KEY, mode);
+};
+
 const getTrackSignature = (track: TrackMeta) => {
   if (track.signature) return track.signature;
   if (!track.sourcePath) return null;
   if (typeof track.size !== "number" || typeof track.lastModified !== "number") return null;
-  return `${track.sourcePath.trim().toLowerCase()}::${track.size}::${track.lastModified}`;
+  const fileName = track.sourcePath.split("/").pop() || "";
+  return `${track.sourcePath}|${fileName}|${track.size}|${track.lastModified}`.toLowerCase();
 };
 
 export interface ImportProgress {
@@ -53,6 +68,8 @@ export interface ImportResult {
 interface PlayerState {
   tracks: TrackMeta[];
   playlists: Playlist[];
+  lastImportMode: Exclude<ImportMode, "update"> | null;
+  hasImportedBefore: boolean;
   currentTrackId: string | null;
   isPlaying: boolean;
   currentTime: number;
@@ -73,9 +90,10 @@ interface PlayerState {
   createPlaylist: (name: string) => Promise<Playlist>;
   updatePlaylist: (playlist: Playlist) => Promise<void>;
   deletePlaylist: (id: string) => Promise<void>;
-  importFiles: (
+  importPickedFiles: (
     files: File[],
     options?: {
+      mode?: ImportMode;
       candidates?: AudioImportCandidate[];
       handles?: (FileSystemFileHandle | undefined)[];
       autoImport?: boolean;
@@ -138,10 +156,8 @@ const runImport = async (
   const createdTracks: TrackMeta[] = [];
   let processed = 0;
 
-  for (let i = 0; i < queue.length; i += IMPORT_BATCH_SIZE) {
-    const batch = queue.slice(i, i + IMPORT_BATCH_SIZE);
-
-    for (const candidate of batch) {
+  for (const group of chunkFiles(queue, IMPORT_BATCH_SIZE)) {
+    for (const candidate of group) {
       try {
         const meta = await extractTrackMeta(candidate.file, {
           handle: candidate.handle,
@@ -194,6 +210,8 @@ const runImport = async (
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   tracks: [],
   playlists: [],
+  lastImportMode: readLastImportMode(),
+  hasImportedBefore: localStorage.getItem(HAS_IMPORTED_BEFORE_KEY) === "true",
   currentTrackId: null,
   isPlaying: false,
   currentTime: 0,
@@ -305,7 +323,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     await playlistRepo.delete(id);
     set({ playlists: get().playlists.filter((item) => item.id !== id) });
   },
-  importFiles: async (files, options) => {
+  importPickedFiles: async (files, options) => {
     const candidates = options?.candidates || normalizeAudioFiles(files, options?.handles);
     const result = await runImport(candidates, {
       autoImport: options?.autoImport,
@@ -319,6 +337,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (folderNames.size === 1) {
       const folderName = Array.from(folderNames)[0];
       if (folderName) rememberFolderName(folderName);
+    }
+
+    if (options?.mode === "folder" || options?.mode === "files") {
+      persistImportMode(options.mode);
+      set({ lastImportMode: options.mode });
+    }
+    if (result.imported > 0) {
+      localStorage.setItem(HAS_IMPORTED_BEFORE_KEY, "true");
+      set({ hasImportedBefore: true });
     }
 
     return result;
@@ -371,6 +398,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         set({ tracks: [...tracks, ...get().tracks] });
       }
     });
+
+    persistImportMode("folder");
+    set({ lastImportMode: "folder" });
+    if (result.imported > 0) {
+      localStorage.setItem(HAS_IMPORTED_BEFORE_KEY, "true");
+      set({ hasImportedBefore: true });
+    }
 
     return {
       ...result,

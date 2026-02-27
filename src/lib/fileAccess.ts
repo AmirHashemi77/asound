@@ -30,9 +30,22 @@ export const supportsWebkitDirectoryInput = () => {
   return "webkitdirectory" in input;
 };
 
+export const normalizePickedFiles = (fileList: FileList | null): File[] => Array.from(fileList || []);
+
 export const isAudioFileName = (fileName: string) => {
   const lowered = fileName.toLowerCase();
   return AUDIO_EXTENSIONS.some((ext) => lowered.endsWith(ext));
+};
+
+export const filterAudioFiles = (files: File[]) =>
+  files.filter((file) => {
+    if (file.type?.toLowerCase().startsWith("audio/")) return true;
+    return isAudioFileName(file.name);
+  });
+
+const isAudioFile = (file: File) => {
+  if (file.type?.toLowerCase().startsWith("audio/")) return true;
+  return isAudioFileName(file.name);
 };
 
 const stripExtension = (fileName: string) => fileName.replace(/\.[^.]+$/, "");
@@ -114,31 +127,43 @@ export const readAudioMetadata = async (file: File) => {
   return { title, artist, album, duration, coverUrl };
 };
 
-const getWebkitRelativePath = (file: File) => {
+export const getRelativePath = (file: File): string | null => {
   const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-  if (!relativePath) return undefined;
+  if (!relativePath) return null;
   const normalized = relativePath.trim().replace(/^\/+/, "");
-  return normalized || undefined;
+  return normalized || null;
 };
 
-export const buildFileSignature = (
+const buildSignatureWithPath = (
   file: Pick<File, "name" | "size" | "lastModified">,
-  sourcePath?: string
+  sourcePath?: string | null
 ) => {
-  const identity = (sourcePath || file.name).trim().toLowerCase();
-  return `${identity}::${file.size}::${file.lastModified}`;
+  if (sourcePath) {
+    return `${sourcePath}|${file.name}|${file.size}|${file.lastModified}`.toLowerCase();
+  }
+  return `${file.name}|${file.size}|${file.lastModified}`.toLowerCase();
+};
+
+export const buildFileSignature = (file: File) => buildSignatureWithPath(file, getRelativePath(file));
+
+export const batch = <T>(files: T[], size = 25): T[][] => {
+  const batches: T[][] = [];
+  for (let i = 0; i < files.length; i += size) {
+    batches.push(files.slice(i, i + size));
+  }
+  return batches;
 };
 
 const toCandidate = (
   file: File,
   options?: { handle?: FileSystemFileHandle; sourcePath?: string }
 ): AudioImportCandidate => {
-  const sourcePath = options?.sourcePath || getWebkitRelativePath(file);
+  const sourcePath = options?.sourcePath || getRelativePath(file) || undefined;
   return {
     file,
     handle: options?.handle,
     sourcePath,
-    signature: buildFileSignature(file, sourcePath)
+    signature: buildSignatureWithPath(file, sourcePath || null)
   };
 };
 
@@ -149,7 +174,7 @@ export const normalizeAudioFiles = (
   const candidates: AudioImportCandidate[] = [];
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i];
-    if (!isAudioFileName(file.name) && !file.type.startsWith("audio/")) continue;
+    if (!isAudioFile(file)) continue;
     candidates.push(toCandidate(file, { handle: handles?.[i] }));
   }
   return candidates;
@@ -304,7 +329,7 @@ export const extractTrackMeta = async (
     size: file.size,
     coverUrl,
     sourcePath: options?.sourcePath,
-    signature: options?.signature || buildFileSignature(file, options?.sourcePath),
+    signature: options?.signature || buildSignatureWithPath(file, options?.sourcePath || getRelativePath(file)),
     addedAt: Date.now(),
     source: options?.handle ? "handle" : "file",
     handleId

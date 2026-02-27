@@ -1,14 +1,14 @@
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  HiOutlineArrowUpTray,
   HiOutlineFolderOpen,
   HiOutlineMusicalNote,
   HiOutlineXMark
 } from "react-icons/hi2";
 import { trackRepo } from "../db/trackRepo";
 import {
+  normalizePickedFiles,
   pickAudioDirectory,
   supportsDirectoryAccess,
   supportsWebkitDirectoryInput
@@ -29,9 +29,11 @@ const InitialImportGate = () => {
   const [status, setStatus] = useState<string | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
 
-  const importFiles = usePlayerStore((s) => s.importFiles);
-  const autoImport = useSettings((s) => s.autoImport);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
 
+  const importPickedFiles = usePlayerStore((s) => s.importPickedFiles);
+  const autoImport = useSettings((s) => s.autoImport);
   const canUseDirectoryPicker = useMemo(() => supportsDirectoryAccess(), []);
   const canUseWebkitDirectory = useMemo(() => supportsWebkitDirectoryInput(), []);
 
@@ -58,15 +60,37 @@ const InitialImportGate = () => {
     };
 
     init();
-
     return () => {
       active = false;
     };
   }, []);
 
-  const runImport = async (files: File[]) => {
+  const onProgress = (current: number, total: number) => {
+    if (!total) {
+      setProgressText("Preparing import...");
+      return;
+    }
+    setProgressText(`Importing ${Math.min(current, total)} / ${total}`);
+  };
+
+  const handleImportResult = (result: { imported: number; skipped: number; failed: number }) => {
+    if (result.imported > 0 || result.skipped > 0) {
+      localStorage.setItem(FIRST_IMPORT_KEY, "done");
+      setOpen(false);
+      return;
+    }
+
+    if (result.failed > 0) {
+      setStatus("Import failed for selected files. Please try again.");
+      return;
+    }
+
+    setStatus("No audio files found.");
+  };
+
+  const importFromFiles = async (files: File[], mode: "folder" | "files") => {
     if (!files.length) {
-      setStatus("No audio files found.");
+      setStatus("No files selected.");
       return;
     }
 
@@ -75,23 +99,12 @@ const InitialImportGate = () => {
     setProgressText("Preparing import...");
 
     try {
-      const result = await importFiles(files, {
+      const result = await importPickedFiles(files, {
+        mode,
         autoImport,
-        onProgress: (progress) => {
-          if (progress.total === 0) {
-            setProgressText("Preparing import...");
-            return;
-          }
-          setProgressText(`Importing ${Math.min(progress.current, progress.total)}/${progress.total}`);
-        }
+        onProgress: (progress) => onProgress(progress.current, progress.total)
       });
-
-      if (result.imported > 0 || result.skipped > 0) {
-        localStorage.setItem(FIRST_IMPORT_KEY, "done");
-        setOpen(false);
-      } else if (result.failed > 0) {
-        setStatus("Import failed. Please try another folder or files.");
-      }
+      handleImportResult(result);
     } catch {
       setStatus("Import failed. Please try again.");
     } finally {
@@ -100,46 +113,57 @@ const InitialImportGate = () => {
     }
   };
 
-  const importFromDirectory = async () => {
-    try {
-      const picked = await pickAudioDirectory();
-      if (!picked.files.length) {
-        setStatus("No audio files found in the selected folder.");
-        return;
-      }
-
+  const onImportFolder = async () => {
+    if (canUseDirectoryPicker) {
       setLoading(true);
       setStatus(null);
       setProgressText("Preparing import...");
 
-      const result = await importFiles([], {
-        autoImport,
-        candidates: picked.files,
-        onProgress: (progress) => {
-          if (progress.total === 0) {
-            setProgressText("Preparing import...");
-            return;
-          }
-          setProgressText(`Importing ${Math.min(progress.current, progress.total)}/${progress.total}`);
+      try {
+        const picked = await pickAudioDirectory();
+        if (!picked.files.length) {
+          setStatus("No audio files found in selected folder.");
+          return;
         }
-      });
 
-      if (result.imported > 0 || result.skipped > 0) {
-        localStorage.setItem(FIRST_IMPORT_KEY, "done");
-        setOpen(false);
+        const result = await importPickedFiles([], {
+          candidates: picked.files,
+          mode: "folder",
+          autoImport,
+          onProgress: (progress) => onProgress(progress.current, progress.total)
+        });
+        handleImportResult(result);
+      } catch {
+        setStatus("Folder selection was canceled or denied.");
+      } finally {
+        setLoading(false);
+        setProgressText(null);
       }
-    } catch {
-      setStatus("Permission was denied or folder selection was canceled.");
-    } finally {
-      setLoading(false);
-      setProgressText(null);
+      return;
     }
+
+    if (canUseWebkitDirectory) {
+      folderInputRef.current?.click();
+      return;
+    }
+
+    setStatus("Folder import is not supported. Use Select Files.");
   };
 
-  const onFileInput = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    await runImport(files);
+  const onSelectFiles = () => {
+    filesInputRef.current?.click();
+  };
+
+  const onFolderInput = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = normalizePickedFiles(event.target.files);
     event.target.value = "";
+    await importFromFiles(files, "folder");
+  };
+
+  const onFilesInput = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = normalizePickedFiles(event.target.files);
+    event.target.value = "";
+    await importFromFiles(files, "files");
   };
 
   if (!ready) return null;
@@ -167,9 +191,7 @@ const InitialImportGate = () => {
                 </span>
                 <div>
                   <h2 className="font-display text-lg font-semibold text-primary">Import Your Music</h2>
-                  <p className="text-sm text-muted">
-                    First-time setup: choose your music folder or files to populate the library.
-                  </p>
+                  <p className="text-sm text-muted">Choose a folder or files to build your library.</p>
                 </div>
               </div>
               <button
@@ -182,73 +204,26 @@ const InitialImportGate = () => {
             </div>
 
             <div className="space-y-3">
-              {canUseDirectoryPicker ? (
-                <button
-                  onClick={importFromDirectory}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
-                >
-                  <HiOutlineFolderOpen className="text-lg" />
-                  {loading ? "Importing..." : "Allow Folder Access & Import"}
-                </button>
-              ) : canUseWebkitDirectory ? (
-                <label
-                  className={`relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow ${
-                    loading ? "pointer-events-none opacity-60" : ""
-                  }`}
-                >
-                  <HiOutlineFolderOpen className="text-lg" />
-                  {loading ? "Importing..." : "Choose Folder (Files app)"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    {...directoryInputAttrs}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    onChange={onFileInput}
-                    disabled={loading}
-                  />
-                </label>
-              ) : (
-                <label
-                  className={`relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow ${
-                    loading ? "pointer-events-none opacity-60" : ""
-                  }`}
-                >
-                  <HiOutlineArrowUpTray className="text-lg" />
-                  {loading ? "Importing..." : "Choose Audio Files"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    onChange={onFileInput}
-                    disabled={loading}
-                  />
-                </label>
-              )}
+              <button
+                onClick={onImportFolder}
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
+              >
+                <HiOutlineFolderOpen className="text-lg" />
+                Import Folder
+              </button>
 
-              {canUseDirectoryPicker && (
-                <label
-                  className={`relative block w-full cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm font-medium text-primary ${
-                    loading ? "pointer-events-none opacity-60" : ""
-                  }`}
-                >
-                  Choose Files Instead
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    onChange={onFileInput}
-                    disabled={loading}
-                  />
-                </label>
-              )}
+              <button
+                onClick={onSelectFiles}
+                disabled={loading}
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-medium text-primary disabled:opacity-60"
+              >
+                Select Files
+              </button>
 
               {canUseWebkitDirectory && !canUseDirectoryPicker && (
                 <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-muted">
-                  iPhone/iPad: select the folder again from Files when you update the library later.
+                  iPhone/iPad: choose your folder from Files when prompted.
                 </p>
               )}
 
@@ -261,6 +236,24 @@ const InitialImportGate = () => {
 
               {status && <p className="text-xs text-muted">{status}</p>}
             </div>
+
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              {...directoryInputAttrs}
+              className="hidden"
+              onChange={onFolderInput}
+              disabled={loading}
+            />
+            <input
+              ref={filesInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={onFilesInput}
+              disabled={loading}
+            />
           </motion.div>
         </motion.div>
       )}
