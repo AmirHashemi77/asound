@@ -1,0 +1,14 @@
+export const chunkArray = <T>(items: T[], chunkSize: number): T[][] => {
+  if (chunkSize <= 0) return [items];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+  return chunks;
+};
+
+export const yieldToUI = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
