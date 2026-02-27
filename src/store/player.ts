@@ -220,7 +220,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   repeat: "off",
   setTracks: (tracks) => set({ tracks }),
   addTracks: (tracks) => set({ tracks: [...tracks, ...get().tracks] }),
-  removeTrack: (id) => set({ tracks: get().tracks.filter((track) => track.id !== id) }),
+  removeTrack: (id) => {
+    const trackToRemove = get().tracks.find((track) => track.id === id);
+    if (trackToRemove?.coverUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(trackToRemove.coverUrl);
+    }
+    void trackRepo.delete(id);
+    set({ tracks: get().tracks.filter((track) => track.id !== id) });
+  },
   setCurrent: (id) => set({ currentTrackId: id }),
   setIsPlaying: (value) => set({ isPlaying: value }),
   setCurrentTime: (value) => set({ currentTime: value }),
@@ -282,6 +289,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (!track.album && metadata.album) {
           nextTrack.album = metadata.album;
           changed = true;
+        }
+        if (!track.coverUrl && metadata.coverUrl) {
+          nextTrack.coverUrl = metadata.coverUrl;
+          changed = true;
+        } else if (metadata.coverUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(metadata.coverUrl);
         }
 
         const titleLooksRaw = track.title.includes(" - ");

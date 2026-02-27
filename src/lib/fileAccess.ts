@@ -112,7 +112,7 @@ export const readAudioMetadata = async (file: File) => {
     duration = metadata.format.duration || undefined;
 
     const picture = metadata.common.picture?.[0];
-    if (picture) {
+    if (picture && picture.format?.startsWith("image/")) {
       const blob = new Blob([picture.data], { type: picture.format });
       coverUrl = URL.createObjectURL(blob);
     }

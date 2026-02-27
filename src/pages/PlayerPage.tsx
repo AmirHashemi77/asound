@@ -13,6 +13,8 @@ import { usePlayerStore } from "../store/player";
 import { useSettings } from "../store/settings";
 import { formatTime } from "../lib/format";
 
+const DEFAULT_COVER = "/default-cover.png";
+
 const PlayerPage = () => {
   const { currentTrack, play, pause, playNext, playPrev, seek } = useAudio();
   const { isPlaying, currentTime, duration, shuffle, repeat, toggleShuffle, cycleRepeat } =
@@ -37,11 +39,15 @@ const PlayerPage = () => {
 
       <div className="glass flex flex-col items-center gap-4 rounded-3xl p-6 shadow-soft">
         <div className="flex h-60 w-60 items-center justify-center rounded-3xl bg-white/10">
-          {currentTrack.coverUrl ? (
-            <img src={currentTrack.coverUrl} alt={currentTrack.title} className="h-60 w-60 rounded-3xl" />
-          ) : (
-            <span className="text-6xl">♪</span>
-          )}
+          <img
+            src={currentTrack.coverUrl || DEFAULT_COVER}
+            alt={currentTrack.title}
+            className="h-60 w-60 rounded-3xl object-cover"
+            onError={(event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = DEFAULT_COVER;
+            }}
+          />
         </div>
         <div className="w-full">
           <input

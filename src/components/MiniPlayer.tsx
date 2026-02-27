@@ -5,6 +5,8 @@ import { useAudio } from "../store/audioContext";
 import { usePlayerStore } from "../store/player";
 import { formatTime } from "../lib/format";
 
+const DEFAULT_COVER = "/default-cover.png";
+
 const MiniPlayer = () => {
   const { currentTrack, play, pause, playNext, playPrev } = useAudio();
   const { isPlaying, currentTime, duration } = usePlayerStore();
@@ -15,11 +17,15 @@ const MiniPlayer = () => {
     <div className="glass mx-3 mb-3 flex items-center gap-2 rounded-2xl px-3 py-2.5 shadow-soft sm:mx-4 sm:gap-3 sm:px-4 sm:py-3">
       <Link to="/player" className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-base sm:h-12 sm:w-12 sm:text-lg">
-          {currentTrack.coverUrl ? (
-            <img src={currentTrack.coverUrl} alt={currentTrack.title} className="h-full w-full rounded-xl" />
-          ) : (
-            "♪"
-          )}
+          <img
+            src={currentTrack.coverUrl || DEFAULT_COVER}
+            alt={currentTrack.title}
+            className="h-full w-full rounded-xl object-cover"
+            onError={(event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = DEFAULT_COVER;
+            }}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-primary sm:text-base">{currentTrack.title}</p>
