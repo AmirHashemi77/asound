@@ -12,46 +12,50 @@ const MiniPlayer = () => {
   if (!currentTrack) return null;
 
   return (
-    <div className="glass mx-4 mb-3 flex items-center gap-3 rounded-2xl px-4 py-3 shadow-soft">
-      <Link to="/player" className="flex flex-1 items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-lg">
+    <div className="glass mx-3 mb-3 flex items-center gap-2 rounded-2xl px-3 py-2.5 shadow-soft sm:mx-4 sm:gap-3 sm:px-4 sm:py-3">
+      <Link to="/player" className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-base sm:h-12 sm:w-12 sm:text-lg">
           {currentTrack.coverUrl ? (
-            <img src={currentTrack.coverUrl} alt={currentTrack.title} className="h-12 w-12 rounded-xl" />
+            <img src={currentTrack.coverUrl} alt={currentTrack.title} className="h-full w-full rounded-xl" />
           ) : (
             "♪"
           )}
         </div>
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-primary">{currentTrack.title}</p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-primary sm:text-base">{currentTrack.title}</p>
           <p className="truncate text-xs text-muted">
-            {currentTrack.artist || "Unknown Artist"} · {formatTime(currentTime)} / {formatTime(duration)}
+            {currentTrack.artist || "Unknown Artist"}
+            <span className="hidden min-[380px]:inline">
+              {" "}
+              · {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
           </p>
         </div>
       </Link>
-      <div className="flex items-center gap-2">
+      <div className="shrink-0 flex items-center gap-1.5 sm:gap-2">
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={playPrev}
           aria-label="Previous track"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-primary"
+          className="hidden h-8 w-8 items-center justify-center rounded-full bg-white/10 text-primary min-[360px]:flex sm:h-9 sm:w-9"
         >
-          <HiMiniBackward className="text-lg" />
+          <HiMiniBackward className="text-base sm:text-lg" />
         </motion.button>
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={isPlaying ? pause : play}
           aria-label={isPlaying ? "Pause" : "Play"}
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-glow text-white shadow-glow"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-glow text-white shadow-glow sm:h-10 sm:w-10"
         >
-          {isPlaying ? <HiMiniPause className="text-xl" /> : <HiMiniPlay className="text-xl" />}
+          {isPlaying ? <HiMiniPause className="text-lg sm:text-xl" /> : <HiMiniPlay className="text-lg sm:text-xl" />}
         </motion.button>
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={playNext}
           aria-label="Next track"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-primary sm:h-9 sm:w-9"
         >
-          <HiMiniForward className="text-lg" />
+          <HiMiniForward className="text-base sm:text-lg" />
         </motion.button>
       </div>
     </div>
