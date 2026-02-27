@@ -13,6 +13,11 @@ class PlayerDB extends Dexie {
       playlists: "id, name, updatedAt",
       handles: "id"
     });
+    this.version(2).stores({
+      tracks: "id, title, artist, album, addedAt, signature, sourcePath",
+      playlists: "id, name, updatedAt",
+      handles: "id, kind, purpose"
+    });
   }
 }
 

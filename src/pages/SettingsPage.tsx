@@ -3,6 +3,7 @@ import { useTheme } from "../store/theme";
 import { useSettings } from "../store/settings";
 import { trackRepo } from "../db/trackRepo";
 import { handleRepo } from "../db/handleRepo";
+import { LIBRARY_LAST_FOLDER_NAME_KEY } from "../lib/fileAccess";
 import { usePlayerStore } from "../store/player";
 
 const SettingsPage = () => {
@@ -14,6 +15,7 @@ const SettingsPage = () => {
   const clearLibrary = async () => {
     await trackRepo.clear();
     await handleRepo.clear();
+    localStorage.removeItem(LIBRARY_LAST_FOLDER_NAME_KEY);
     setTracks([]);
     setStatus("Library and cached audio cleared.");
   };

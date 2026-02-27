@@ -8,21 +8,32 @@ import {
   HiOutlineXMark
 } from "react-icons/hi2";
 import { trackRepo } from "../db/trackRepo";
-import { extractTrackMeta, pickAudioDirectory, supportsDirectoryAccess } from "../lib/fileAccess";
+import {
+  pickAudioDirectory,
+  supportsDirectoryAccess,
+  supportsWebkitDirectoryInput
+} from "../lib/fileAccess";
 import { usePlayerStore } from "../store/player";
 import { useSettings } from "../store/settings";
 
 const FIRST_IMPORT_KEY = "library-first-import-complete";
+const directoryInputAttrs = {
+  webkitdirectory: "",
+  directory: ""
+} as Record<string, string>;
 
 const InitialImportGate = () => {
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [progressText, setProgressText] = useState<string | null>(null);
 
-  const addTracks = usePlayerStore((s) => s.addTracks);
+  const importFiles = usePlayerStore((s) => s.importFiles);
   const autoImport = useSettings((s) => s.autoImport);
+
   const canUseDirectoryPicker = useMemo(() => supportsDirectoryAccess(), []);
+  const canUseWebkitDirectory = useMemo(() => supportsWebkitDirectoryInput(), []);
 
   useEffect(() => {
     let active = true;
@@ -53,54 +64,81 @@ const InitialImportGate = () => {
     };
   }, []);
 
-  const importFiles = async (files: File[], handles?: FileSystemFileHandle[]) => {
+  const runImport = async (files: File[]) => {
     if (!files.length) {
       setStatus("No audio files found.");
       return;
     }
 
     setLoading(true);
-    setStatus(`Importing ${files.length} audio files...`);
+    setStatus(null);
+    setProgressText("Preparing import...");
 
     try {
-      const tracks = [];
-      for (let i = 0; i < files.length; i += 1) {
-        const file = files[i];
-        const handle = handles?.[i];
-        const meta = await extractTrackMeta(file, handle);
-
-        // First import should be resilient for offline/iOS; blob keeps file available.
-        if (autoImport || !handle) {
-          meta.source = "blob";
-          meta.blob = file;
+      const result = await importFiles(files, {
+        autoImport,
+        onProgress: (progress) => {
+          if (progress.total === 0) {
+            setProgressText("Preparing import...");
+            return;
+          }
+          setProgressText(`Importing ${Math.min(progress.current, progress.total)}/${progress.total}`);
         }
+      });
 
-        tracks.push(meta);
+      if (result.imported > 0 || result.skipped > 0) {
+        localStorage.setItem(FIRST_IMPORT_KEY, "done");
+        setOpen(false);
+      } else if (result.failed > 0) {
+        setStatus("Import failed. Please try another folder or files.");
       }
-
-      await trackRepo.upsertAll(tracks);
-      addTracks(tracks);
-      localStorage.setItem(FIRST_IMPORT_KEY, "done");
-      setOpen(false);
     } catch {
       setStatus("Import failed. Please try again.");
     } finally {
       setLoading(false);
+      setProgressText(null);
     }
   };
 
   const importFromDirectory = async () => {
     try {
-      const { files, handles } = await pickAudioDirectory();
-      await importFiles(files, handles);
+      const picked = await pickAudioDirectory();
+      if (!picked.files.length) {
+        setStatus("No audio files found in the selected folder.");
+        return;
+      }
+
+      setLoading(true);
+      setStatus(null);
+      setProgressText("Preparing import...");
+
+      const result = await importFiles([], {
+        autoImport,
+        candidates: picked.files,
+        onProgress: (progress) => {
+          if (progress.total === 0) {
+            setProgressText("Preparing import...");
+            return;
+          }
+          setProgressText(`Importing ${Math.min(progress.current, progress.total)}/${progress.total}`);
+        }
+      });
+
+      if (result.imported > 0 || result.skipped > 0) {
+        localStorage.setItem(FIRST_IMPORT_KEY, "done");
+        setOpen(false);
+      }
     } catch {
-      setStatus("Permission was denied or directory selection was canceled.");
+      setStatus("Permission was denied or folder selection was canceled.");
+    } finally {
+      setLoading(false);
+      setProgressText(null);
     }
   };
 
   const onFileInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    await importFiles(files);
+    await runImport(files);
     event.target.value = "";
   };
 
@@ -130,7 +168,7 @@ const InitialImportGate = () => {
                 <div>
                   <h2 className="font-display text-lg font-semibold text-primary">Import Your Music</h2>
                   <p className="text-sm text-muted">
-                    First-time setup: grant access once, then we import your audio library.
+                    First-time setup: choose your music folder or files to populate the library.
                   </p>
                 </div>
               </div>
@@ -151,8 +189,26 @@ const InitialImportGate = () => {
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
                 >
                   <HiOutlineFolderOpen className="text-lg" />
-                  {loading ? "Importing..." : "Allow Folder Access & Import All Audio"}
+                  {loading ? "Importing..." : "Allow Folder Access & Import"}
                 </button>
+              ) : canUseWebkitDirectory ? (
+                <label
+                  className={`relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow ${
+                    loading ? "pointer-events-none opacity-60" : ""
+                  }`}
+                >
+                  <HiOutlineFolderOpen className="text-lg" />
+                  {loading ? "Importing..." : "Choose Folder (Files app)"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    multiple
+                    {...directoryInputAttrs}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={onFileInput}
+                    disabled={loading}
+                  />
+                </label>
               ) : (
                 <label
                   className={`relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-glow px-4 py-3 text-sm font-semibold text-white shadow-glow ${
@@ -160,7 +216,7 @@ const InitialImportGate = () => {
                   }`}
                 >
                   <HiOutlineArrowUpTray className="text-lg" />
-                  {loading ? "Importing..." : "Choose Audio Files to Import"}
+                  {loading ? "Importing..." : "Choose Audio Files"}
                   <input
                     type="file"
                     accept="audio/*"
@@ -188,6 +244,19 @@ const InitialImportGate = () => {
                     disabled={loading}
                   />
                 </label>
+              )}
+
+              {canUseWebkitDirectory && !canUseDirectoryPicker && (
+                <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-muted">
+                  iPhone/iPad: select the folder again from Files when you update the library later.
+                </p>
+              )}
+
+              {progressText && (
+                <p className="flex items-center gap-2 text-xs text-muted">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                  {progressText}
+                </p>
               )}
 
               {status && <p className="text-xs text-muted">{status}</p>}

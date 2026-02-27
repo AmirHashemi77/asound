@@ -21,8 +21,8 @@ export const resolveTrackSrc = async (track: TrackMeta): Promise<string | null> 
   }
   if (track.source === "handle" && track.handleId) {
     const stored = await handleRepo.get(track.handleId);
-    if (!stored) return null;
-    const file = await stored.handle.getFile();
+    if (!stored || stored.kind !== "file") return null;
+    const file = await (stored.handle as FileSystemFileHandle).getFile();
     return URL.createObjectURL(file);
   }
   return null;

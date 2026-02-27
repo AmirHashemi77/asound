@@ -1,18 +1,34 @@
 import { parseBlob } from "music-metadata-browser";
-import type { TrackMeta } from "../db/types";
 import { handleRepo } from "../db/handleRepo";
+import type { TrackMeta } from "../db/types";
 
 const AUDIO_EXTENSIONS = [".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus", ".alac"];
+const LIBRARY_ROOT_HANDLE_ID = "library-root-directory";
+export const LIBRARY_LAST_FOLDER_NAME_KEY = "library-last-folder-name";
+
 type DirectoryHandleWithIterators = FileSystemDirectoryHandle & {
   values?: () => AsyncIterable<FileSystemHandle>;
   entries?: () => AsyncIterable<[string, FileSystemHandle]>;
 };
+
+export interface AudioImportCandidate {
+  file: File;
+  handle?: FileSystemFileHandle;
+  sourcePath?: string;
+  signature: string;
+}
 
 export const supportsFileSystemAccess = () =>
   "showOpenFilePicker" in window && typeof window.showOpenFilePicker === "function";
 
 export const supportsDirectoryAccess = () =>
   "showDirectoryPicker" in window && typeof window.showDirectoryPicker === "function";
+
+export const supportsWebkitDirectoryInput = () => {
+  if (typeof document === "undefined") return false;
+  const input = document.createElement("input") as HTMLInputElement & { webkitdirectory?: boolean };
+  return "webkitdirectory" in input;
+};
 
 export const isAudioFileName = (fileName: string) => {
   const lowered = fileName.toLowerCase();
@@ -30,7 +46,10 @@ const parseArtistTitleFromName = (fileName: string) => {
   const base = stripExtension(fileName).replace(/[_]+/g, " ").trim();
   const separators = [" - ", " – ", " — "];
   for (const separator of separators) {
-    const parts = base.split(separator).map((part) => part.trim()).filter(Boolean);
+    const parts = base
+      .split(separator)
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (parts.length >= 2) {
       return {
         artist: cleanText(parts[0]),
@@ -95,33 +114,73 @@ export const readAudioMetadata = async (file: File) => {
   return { title, artist, album, duration, coverUrl };
 };
 
-export const pickAudioFiles = async (): Promise<{
-  files: File[];
-  handles?: FileSystemFileHandle[];
-}> => {
-  const openPicker = window.showOpenFilePicker;
-  if (typeof openPicker === "function") {
-    const handles = await openPicker({
-      multiple: true,
-      types: [
-        {
-          description: "Audio",
-          accept: {
-            "audio/*": [".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac"]
-          }
-        }
-      ]
-    });
-    const files = await Promise.all(handles.map((handle) => handle.getFile()));
-    return { files, handles };
+const getWebkitRelativePath = (file: File) => {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  if (!relativePath) return undefined;
+  const normalized = relativePath.trim().replace(/^\/+/, "");
+  return normalized || undefined;
+};
+
+export const buildFileSignature = (
+  file: Pick<File, "name" | "size" | "lastModified">,
+  sourcePath?: string
+) => {
+  const identity = (sourcePath || file.name).trim().toLowerCase();
+  return `${identity}::${file.size}::${file.lastModified}`;
+};
+
+const toCandidate = (
+  file: File,
+  options?: { handle?: FileSystemFileHandle; sourcePath?: string }
+): AudioImportCandidate => {
+  const sourcePath = options?.sourcePath || getWebkitRelativePath(file);
+  return {
+    file,
+    handle: options?.handle,
+    sourcePath,
+    signature: buildFileSignature(file, sourcePath)
+  };
+};
+
+export const normalizeAudioFiles = (
+  files: File[],
+  handles?: (FileSystemFileHandle | undefined)[]
+): AudioImportCandidate[] => {
+  const candidates: AudioImportCandidate[] = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    if (!isAudioFileName(file.name) && !file.type.startsWith("audio/")) continue;
+    candidates.push(toCandidate(file, { handle: handles?.[i] }));
   }
-  return { files: [] };
+  return candidates;
+};
+
+export const pickAudioFiles = async (): Promise<AudioImportCandidate[]> => {
+  const openPicker = window.showOpenFilePicker;
+  if (typeof openPicker !== "function") {
+    return [];
+  }
+
+  const handles = await openPicker({
+    multiple: true,
+    types: [
+      {
+        description: "Audio",
+        accept: {
+          "audio/*": AUDIO_EXTENSIONS
+        }
+      }
+    ]
+  });
+  const files = await Promise.all(handles.map((handle) => handle.getFile()));
+  return normalizeAudioFiles(files, handles);
 };
 
 const walkDirectory = async (
   directory: FileSystemDirectoryHandle,
-  files: File[],
-  handles: FileSystemFileHandle[]
+  rootName: string,
+  candidates: AudioImportCandidate[],
+  parentPath = ""
 ) => {
   const iterableDirectory = directory as DirectoryHandleWithIterators;
 
@@ -141,43 +200,97 @@ const walkDirectory = async (
   if (!iterator) return;
 
   for await (const entry of iterator) {
+    const nextPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
     if (entry.kind === "directory") {
-      await walkDirectory(entry as FileSystemDirectoryHandle, files, handles);
+      await walkDirectory(entry as FileSystemDirectoryHandle, rootName, candidates, nextPath);
       continue;
     }
-    const fileHandle = entry as FileSystemFileHandle;
-    const file = await fileHandle.getFile();
-    if (!isAudioFileName(file.name)) continue;
-    files.push(file);
-    handles.push(fileHandle);
+
+    const handle = entry as FileSystemFileHandle;
+    const file = await handle.getFile();
+    if (!isAudioFileName(file.name) && !file.type.startsWith("audio/")) continue;
+
+    const sourcePath = `${rootName}/${nextPath}`;
+    candidates.push(toCandidate(file, { handle, sourcePath }));
   }
+};
+
+export const scanAudioDirectory = async (
+  rootHandle: FileSystemDirectoryHandle
+): Promise<AudioImportCandidate[]> => {
+  const candidates: AudioImportCandidate[] = [];
+  await walkDirectory(rootHandle, rootHandle.name, candidates);
+  return candidates;
 };
 
 export const pickAudioDirectory = async (): Promise<{
-  files: File[];
-  handles: FileSystemFileHandle[];
+  rootHandle: FileSystemDirectoryHandle | null;
+  files: AudioImportCandidate[];
 }> => {
   const openDirectoryPicker = window.showDirectoryPicker;
   if (typeof openDirectoryPicker !== "function") {
-    return { files: [], handles: [] };
+    return { rootHandle: null, files: [] };
   }
 
-  const root = await openDirectoryPicker({ mode: "read", startIn: "music" });
-  const files: File[] = [];
-  const handles: FileSystemFileHandle[] = [];
-  await walkDirectory(root, files, handles);
-  return { files, handles };
+  const rootHandle = await openDirectoryPicker({ mode: "read", startIn: "music" });
+  const files = await scanAudioDirectory(rootHandle);
+  await handleRepo.save(rootHandle, {
+    id: LIBRARY_ROOT_HANDLE_ID,
+    purpose: "library-root"
+  });
+  localStorage.setItem(LIBRARY_LAST_FOLDER_NAME_KEY, rootHandle.name);
+
+  return { rootHandle, files };
 };
+
+export const getRememberedLibraryDirectory = async () => {
+  const stored = await handleRepo.get(LIBRARY_ROOT_HANDLE_ID);
+  if (!stored || stored.kind !== "directory") return null;
+  return stored.handle as FileSystemDirectoryHandle;
+};
+
+export const ensureReadPermission = async (handle: FileSystemDirectoryHandle) => {
+  const permissionHandle = handle as FileSystemDirectoryHandle & {
+    queryPermission?: (descriptor?: { mode?: "read" | "readwrite" }) => Promise<string>;
+    requestPermission?: (descriptor?: { mode?: "read" | "readwrite" }) => Promise<string>;
+  };
+  const queryPermission = permissionHandle.queryPermission;
+  const requestPermission = permissionHandle.requestPermission;
+  if (typeof queryPermission !== "function") return true;
+
+  const descriptor = { mode: "read" as const };
+  const current = await queryPermission.call(permissionHandle, descriptor);
+  if (current === "granted") return true;
+  if (typeof requestPermission !== "function") return false;
+  const next = await requestPermission.call(permissionHandle, descriptor);
+  return next === "granted";
+};
+
+export const getSourceRootName = (sourcePath?: string) => {
+  if (!sourcePath) return null;
+  const [root] = sourcePath.split("/").filter(Boolean);
+  return root || null;
+};
+
+export const rememberFolderName = (folderName: string) => {
+  localStorage.setItem(LIBRARY_LAST_FOLDER_NAME_KEY, folderName);
+};
+
+export const getRememberedFolderName = () => localStorage.getItem(LIBRARY_LAST_FOLDER_NAME_KEY);
 
 export const extractTrackMeta = async (
   file: File,
-  handle?: FileSystemFileHandle
+  options?: {
+    handle?: FileSystemFileHandle;
+    sourcePath?: string;
+    signature?: string;
+  }
 ): Promise<TrackMeta> => {
   const { title, artist, album, duration, coverUrl } = await readAudioMetadata(file);
 
   let handleId: string | undefined;
-  if (handle) {
-    const stored = await handleRepo.save(handle);
+  if (options?.handle) {
+    const stored = await handleRepo.save(options.handle, { purpose: "track" });
     handleId = stored.id;
   }
 
@@ -190,8 +303,10 @@ export const extractTrackMeta = async (
     lastModified: file.lastModified,
     size: file.size,
     coverUrl,
+    sourcePath: options?.sourcePath,
+    signature: options?.signature || buildFileSignature(file, options?.sourcePath),
     addedAt: Date.now(),
-    source: handle ? "handle" : "file",
+    source: options?.handle ? "handle" : "file",
     handleId
   };
 };

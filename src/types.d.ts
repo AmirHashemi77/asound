@@ -23,14 +23,29 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
+type PickerPermissionMode = "read" | "readwrite";
+type PickerPermissionState = "granted" | "denied" | "prompt";
+
+interface FileSystemPermissionDescriptor {
+  mode?: PickerPermissionMode;
+}
+
+interface FileSystemHandlePermissionCapable {
+  queryPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PickerPermissionState>;
+  requestPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PickerPermissionState>;
+}
+
 declare class FileSystemFileHandle {
   kind: "file";
   name: string;
   getFile(): Promise<File>;
 }
 
-declare class FileSystemDirectoryHandle {
+declare class FileSystemDirectoryHandle implements FileSystemHandlePermissionCapable {
   kind: "directory";
   name: string;
-  values(): AsyncIterable<FileSystemFileHandle | FileSystemDirectoryHandle>;
+  values?(): AsyncIterable<FileSystemFileHandle | FileSystemDirectoryHandle>;
+  entries?(): AsyncIterable<[string, FileSystemFileHandle | FileSystemDirectoryHandle]>;
+  queryPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PickerPermissionState>;
+  requestPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PickerPermissionState>;
 }
