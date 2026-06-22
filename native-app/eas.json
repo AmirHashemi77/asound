@@ -1,9 +1,8 @@
 {
   "build": {
     "production": {
-      "ios": {
-        "buildType": "archive"
-      }
+      "distribution": "store",
+      "ios": {}
     }
   }
 }

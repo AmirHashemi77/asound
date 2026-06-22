@@ -15,7 +15,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.asound.native",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": ["audio"],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -41,6 +42,11 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "67e6c836-d1c8-4c4a-9186-bd0056a8b980"
+      }
+    }
   }
 }
