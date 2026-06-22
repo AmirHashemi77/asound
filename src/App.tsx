@@ -41,7 +41,7 @@ const App = () => {
         <PwaInstallPrompt />
         {!lowPowerMode && <BackgroundVisualizer />}
         <div className="relative z-10 flex min-h-screen flex-col">
-          <main className="flex-1 px-4 pb-24 pt-6">
+          <main className="flex-1 px-4 pb-48 pt-6 sm:pb-52">
             <AnimatePresence mode="wait">
               <Routes location={location} key={location.pathname}>
                 <Route
@@ -87,8 +87,10 @@ const App = () => {
               </Routes>
             </AnimatePresence>
           </main>
-          <MiniPlayer />
-          <BottomNav />
+          <div className="fixed inset-x-0 bottom-0 z-20">
+            <MiniPlayer />
+            <BottomNav />
+          </div>
         </div>
       </div>
     </AudioProvider>

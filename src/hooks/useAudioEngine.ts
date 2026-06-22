@@ -31,6 +31,7 @@ export const useAudioEngine = () => {
   const rebindAudioListenersRef = useRef<(() => void) | null>(null);
   const shouldPlayRef = useRef(isPlaying);
   const shouldBePlayingRef = useRef(lastKnownShouldBePlaying);
+  const loadedTrackIdRef = useRef<string | null>(null);
 
   const currentTrack = tracks.find((track) => track.id === currentTrackId) || null;
 
@@ -371,7 +372,12 @@ export const useAudioEngine = () => {
   }, [audio, currentTrackId, isPlaying, setCurrentTime]);
 
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack) {
+      loadedTrackIdRef.current = null;
+      return;
+    }
+
+    loadedTrackIdRef.current = null;
 
     const load = async () => {
       const src = await resolveTrackSrc(currentTrack);
@@ -388,6 +394,7 @@ export const useAudioEngine = () => {
       objectUrlRef.current = src;
 
       audio.src = src;
+      loadedTrackIdRef.current = currentTrack.id;
       lastSyncedTimeRef.current = 0;
       setCurrentTime(0);
       setDuration(0);
@@ -424,6 +431,10 @@ export const useAudioEngine = () => {
 
   useEffect(() => {
     if (!currentTrackId) return;
+    // The load effect owns the initial play() call for a track that's still
+    // loading its source; racing it here can fire play() before audio.src is
+    // set, which fails fast and cancels the real autoplay attempt.
+    if (loadedTrackIdRef.current !== currentTrackId) return;
 
     if (isPlaying) {
       if (!audio.paused) {

@@ -56,12 +56,7 @@ const MiniPlayer = () => {
         >
           {isPlaying ? <HiMiniPause className="text-lg sm:text-xl" /> : <HiMiniPlay className="text-lg sm:text-xl" />}
         </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={playNext}
-          aria-label="Next track"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-primary sm:h-9 sm:w-9"
-        >
+        <motion.button whileTap={{ scale: 0.9 }} onClick={playNext} aria-label="Next track" className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-primary sm:h-9 sm:w-9">
           <HiMiniForward className="text-base sm:text-lg" />
         </motion.button>
       </div>

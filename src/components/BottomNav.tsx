@@ -15,7 +15,7 @@ const navItems: Array<{ to: string; label: string; icon: IconType }> = [
 ];
 
 const BottomNav = () => (
-  <nav className="safe-bottom glass sticky bottom-0 z-20 mx-3 mb-3 flex items-center justify-around rounded-3xl border border-white/10 px-2 py-2 text-[11px] shadow-soft">
+  <nav className="safe-bottom glass mx-3 mb-3 flex items-center justify-around rounded-3xl border border-white/10 px-2 py-2 text-[11px] shadow-soft">
     {navItems.map((item) => {
       const Icon = item.icon;
       return (
