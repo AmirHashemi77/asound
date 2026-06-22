@@ -493,15 +493,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         let writeError: unknown = null;
         if (tracksToSave.length > 0) {
           const tracksForDb = tracksToSave.map((item) => item.track);
-          for (let attempt = 0; attempt < 2; attempt += 1) {
-            try {
-              await trackRepo.upsertAll(tracksForDb);
-              writeError = null;
-              break;
-            } catch (error) {
-              writeError = error;
-              if (attempt === 0) await yieldToUI();
-            }
+          try {
+            await trackRepo.upsertAll(tracksForDb);
+          } catch (error) {
+            writeError = error;
           }
         }
 
