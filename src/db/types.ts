@@ -7,6 +7,8 @@ export interface TrackMeta {
   lastModified?: number;
   size?: number;
   coverUrl?: string;
+  coverBlob?: Blob;
+  coverChecked?: boolean;
   sourcePath?: string;
   signature?: string;
   addedAt: number;

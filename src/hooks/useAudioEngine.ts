@@ -34,6 +34,8 @@ export const useAudioEngine = () => {
   const loadedTrackIdRef = useRef<string | null>(null);
 
   const currentTrack = tracks.find((track) => track.id === currentTrackId) || null;
+  const currentTrackRef = useRef(currentTrack);
+  currentTrackRef.current = currentTrack;
 
   useEffect(() => {
     shouldPlayRef.current = isPlaying;
@@ -372,7 +374,14 @@ export const useAudioEngine = () => {
   }, [audio, currentTrackId, isPlaying, setCurrentTime]);
 
   useEffect(() => {
-    if (!currentTrack) {
+    // Keyed on currentTrackId (a stable string), not the currentTrack object -
+    // background metadata repairs (e.g. cover backfill) replace track objects
+    // in the store without changing which track is selected, and reloading
+    // audio.src on every such update would interrupt in-progress playback
+    // (notably while backgrounded/locked on iOS).
+    const track = currentTrackRef.current;
+
+    if (!track) {
       loadedTrackIdRef.current = null;
       return;
     }
@@ -380,7 +389,7 @@ export const useAudioEngine = () => {
     loadedTrackIdRef.current = null;
 
     const load = async () => {
-      const src = await resolveTrackSrc(currentTrack);
+      const src = await resolveTrackSrc(track);
 
       if (!src) {
         setIsPlaying(false);
@@ -394,11 +403,11 @@ export const useAudioEngine = () => {
       objectUrlRef.current = src;
 
       audio.src = src;
-      loadedTrackIdRef.current = currentTrack.id;
+      loadedTrackIdRef.current = track.id;
       lastSyncedTimeRef.current = 0;
       setCurrentTime(0);
       setDuration(0);
-      setupMediaSession(currentTrack);
+      setupMediaSession(track);
       registerMediaSessionHandlers();
       syncFromAudioElement();
 
@@ -417,7 +426,6 @@ export const useAudioEngine = () => {
     };
   }, [
     audio,
-    currentTrack,
     currentTrackId,
     play,
     registerMediaSessionHandlers,
@@ -428,6 +436,13 @@ export const useAudioEngine = () => {
     setPlaybackNotice,
     syncFromAudioElement
   ]);
+
+  useEffect(() => {
+    // Keep lock-screen / Now Playing metadata in sync when the current
+    // track's data changes (e.g. cover backfilled) without touching audio.src.
+    if (!currentTrack || loadedTrackIdRef.current !== currentTrack.id) return;
+    setupMediaSession(currentTrack);
+  }, [currentTrack]);
 
   useEffect(() => {
     if (!currentTrackId) return;

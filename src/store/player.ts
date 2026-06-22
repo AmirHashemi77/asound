@@ -228,13 +228,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
   loadLibrary: async () => {
     const tracks = await trackRepo.getAll();
-    const sorted = tracks.sort((a, b) => b.addedAt - a.addedAt);
+    // coverUrl is an object URL created at runtime - it doesn't survive a
+    // reload, so regenerate it from the persisted coverBlob every time.
+    const withFreshCovers = tracks.map((track) =>
+      track.coverBlob ? { ...track, coverUrl: URL.createObjectURL(track.coverBlob) } : track
+    );
+    const sorted = withFreshCovers.sort((a, b) => b.addedAt - a.addedAt);
     set({ tracks: sorted });
 
     const incomplete = sorted
       .filter(
         (track) =>
-          (!track.artist || !track.duration || track.duration <= 0) &&
+          (!track.artist || !track.duration || track.duration <= 0 || !track.coverChecked) &&
           (Boolean(track.blob) || Boolean(track.handleId))
       )
       .slice(0, 40);
@@ -279,11 +284,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           nextTrack.album = metadata.album;
           changed = true;
         }
-        if (!track.coverUrl && metadata.coverUrl) {
-          nextTrack.coverUrl = metadata.coverUrl;
+        if (!track.coverBlob && metadata.coverBlob) {
+          nextTrack.coverBlob = metadata.coverBlob;
+          nextTrack.coverUrl = URL.createObjectURL(metadata.coverBlob);
           changed = true;
-        } else if (metadata.coverUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(metadata.coverUrl);
+        }
+        if (!track.coverChecked) {
+          nextTrack.coverChecked = true;
+          changed = true;
         }
 
         const titleLooksRaw = track.title.includes(" - ");
@@ -425,7 +433,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                 artist: "Unknown",
                 album: undefined,
                 duration: 0,
-                coverUrl: undefined
+                coverBlob: undefined
               };
             }
 
@@ -448,7 +456,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                 typeof metadata.duration === "number" && Number.isFinite(metadata.duration)
                   ? metadata.duration
                   : 0,
-              coverUrl: metadata.coverUrl,
+              coverBlob: metadata.coverBlob,
+              coverUrl: metadata.coverBlob ? URL.createObjectURL(metadata.coverBlob) : undefined,
+              coverChecked: true,
               lastModified: candidate.file.lastModified,
               size: candidate.file.size,
               sourcePath: candidate.sourcePath,

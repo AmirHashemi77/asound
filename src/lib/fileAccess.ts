@@ -102,7 +102,7 @@ export const readAudioMetadata = async (file: File) => {
   let artist = fileNameFallback.artist;
   let album: string | undefined;
   let duration: number | undefined;
-  let coverUrl: string | undefined;
+  let coverBlob: Blob | undefined;
 
   try {
     const metadata = await parseBlob(file, { duration: true });
@@ -113,8 +113,9 @@ export const readAudioMetadata = async (file: File) => {
 
     const picture = metadata.common.picture?.[0];
     if (picture && picture.format?.startsWith("image/")) {
-      const blob = new Blob([picture.data], { type: picture.format });
-      coverUrl = URL.createObjectURL(blob);
+      // Store the raw image bytes (not an object URL) so the cover survives
+      // being persisted to IndexedDB - object URLs die with the page/session.
+      coverBlob = new Blob([picture.data], { type: picture.format });
     }
   } catch {
     // Keep fallback meta.
@@ -124,7 +125,7 @@ export const readAudioMetadata = async (file: File) => {
     duration = await readDurationFromAudioTag(file);
   }
 
-  return { title, artist, album, duration, coverUrl };
+  return { title, artist, album, duration, coverBlob };
 };
 
 export const getRelativePath = (file: File): string | null => {
@@ -311,7 +312,7 @@ export const extractTrackMeta = async (
     signature?: string;
   }
 ): Promise<TrackMeta> => {
-  const { title, artist, album, duration, coverUrl } = await readAudioMetadata(file);
+  const { title, artist, album, duration, coverBlob } = await readAudioMetadata(file);
 
   let handleId: string | undefined;
   if (options?.handle) {
@@ -327,7 +328,9 @@ export const extractTrackMeta = async (
     duration,
     lastModified: file.lastModified,
     size: file.size,
-    coverUrl,
+    coverBlob,
+    coverUrl: coverBlob ? URL.createObjectURL(coverBlob) : undefined,
+    coverChecked: true,
     sourcePath: options?.sourcePath,
     signature: options?.signature || buildSignatureWithPath(file, options?.sourcePath || getRelativePath(file)),
     addedAt: Date.now(),
